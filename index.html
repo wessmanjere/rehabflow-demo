@@ -182,9 +182,24 @@ p{margin:0}
 .cue.neutral{background:rgba(10,20,19,.7);color:#fff}
 .countdown{position:absolute;inset:0;display:grid;place-items:center;background:rgba(10,20,19,.35);font-family:var(--f-display);font-size:96px;font-weight:700;color:#fff}
 .gauge-wrap{display:flex;flex-direction:column;align-items:center;gap:0;padding-top:4px}
-.gauge-wrap svg{width:100%;max-width:300px;height:auto;display:block}
-.gauge-legend{display:flex;justify-content:space-between;width:100%;max-width:300px;font-size:12px;color:var(--muted);margin-top:-6px}
+.gauge-wrap svg{width:100%;max-width:250px;height:auto;display:block}
+.gauge-legend{display:flex;justify-content:space-between;width:100%;max-width:280px;font-size:12px;color:var(--muted);margin-top:-6px}
 .gauge-legend b{color:var(--ink)}
+
+.jchips{display:grid;gap:8px}
+.jchip{display:flex;gap:9px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;min-width:0;transition:background .25s,border-color .25s}
+.jchip i{width:10px;height:10px;border-radius:50%;background:var(--body);flex:none;transition:background .25s}
+.jchip b{display:block;font-size:13px;line-height:1.2}
+.jchip .jv{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jchip.ok i{background:var(--green)}
+.jchip.bad{background:var(--amber-soft);border-color:#EBCB8B}
+.jchip.bad i{background:var(--amber)}
+.jchip.bad .jv{color:#8A5D06;font-weight:600}
+.jrows{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.jrow{display:grid;grid-template-columns:1fr 70px 34px;gap:10px;align-items:center;font-size:14px}
+.jrow .bar i{background:var(--green)}
+.jrow.warn .bar i{background:var(--amber)}
+.jrow b{text-align:right;font-variant-numeric:tabular-nums;font-size:13px}
 
 /* results */
 .big{display:flex;align-items:baseline;gap:6px}
@@ -354,6 +369,8 @@ const I = {
   leg:'<path d="M7 4c2 3 2 6 2 9l-1 7h3l2-6c1-3 4-5 6-5"/>',
   send:'<path d="M4 12l16-8-6 16-2.5-6.5z"/>',
   close:'<path d="M6 6l12 12M18 6 6 18"/>',
+  sound:'<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
+  mute:'<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9.5l5 5M22 9.5l-5 5"/>',
 };
 const icon = (n, s = 22, w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
 $('#logo').innerHTML = icon('leg', 20, 2.2);
@@ -388,6 +405,41 @@ const EX = {
     place:'Phone on a shelf at hip height, about 2.5 m away, sideways.' },
 };
 const ORDER = ['heel', 'slr', 'squat'];
+
+/* Joint checks: each watches one body part next to the main angle. b = baseline captured while resting. */
+const footDir = p => Math.sign(p.toe.x - p.heel.x) || 1;
+const CHK = {
+  hips:    { joint:'hip', label:'Hips', ok:'on the mat', bad:'lifting', cue:'Keep your hips on the mat', prio:50,
+             val:(p, b) => (b.hip - p.hip.y) / b.thigh, pass:v => v < 0.1,
+             tip:r => `On ${r} your hips lifted. Keep them flat on the mat and let the knee do the work.` },
+  trunk:   { joint:'shoulder', label:'Upper body', ok:'flat', bad:'lifting', cue:'Keep your shoulders down', prio:48,
+             val:(p, b) => (b.sh - p.shoulder.y) / b.thigh, pass:v => v < 0.15,
+             tip:r => `On ${r} your shoulders came up. Rest your head and shoulders on the mat.` },
+  heelMat: { joint:'heel', label:'Heel', ok:'on the mat', bad:'lifting', cue:'Slide your heel along the mat', prio:47,
+             val:(p, b) => (b.heel - p.heel.y) / b.shank, pass:v => v < 0.12,
+             tip:r => `On ${r} your heel left the mat. Let it glide along the floor, like on a rail.` },
+  otherLeg:{ joint:'oKnee', label:'Left leg', ok:'straight', bad:'bending', cue:'Keep your left leg straight', prio:46,
+             val:p => kneeFlex({ hip:p.oHip, knee:p.oKnee, ankle:p.oAnkle }), pass:v => v < 20,
+             tip:r => `On ${r} your left leg bent. Keep it long and relaxed on the mat.` },
+  kneeStraight:{ joint:'knee', label:'Knee', ok:'straight', bad:'bending', cue:'Keep your knee straight', prio:55,
+             val:p => kneeFlex(p), pass:v => v < 12,
+             tip:r => `On ${r} your knee bent. Tighten your thigh before you lift.` },
+  toes:    { joint:'toe', label:'Toes', ok:'pulled up', bad:'pointing', cue:'Pull your toes towards you', prio:44,
+             val:p => angleBetween(sub(p.knee, p.ankle), sub(p.toe, p.heel)), pass:v => v < 115,
+             tip:r => `On ${r} your toes pointed away. Pull them towards you to keep the leg firm.` },
+  heelDown:{ joint:'heel', label:'Heel', ok:'on the floor', bad:'lifting', cue:'Keep your heel on the floor', prio:55,
+             val:(p, b) => (p.toe.y - p.heel.y) / b.shank, pass:v => v < 0.09,
+             tip:r => `On ${r} your heel came up. Push through your whole foot.` },
+  chest:   { joint:'shoulder', label:'Chest', ok:'upright', bad:'leaning', cue:'Keep your chest up', prio:47,
+             val:p => angleBetween(sub(p.shoulder, p.hip), P(0, -1)), pass:v => v < 35,
+             tip:r => `On ${r} you leaned forward. Keep your chest up, as if sitting back onto a chair.` },
+  kneeToe: { joint:'knee', label:'Knee', ok:'behind toes', bad:'past toes', cue:'Sit back, knee behind your toes', prio:46,
+             val:(p, b) => (p.knee.x - p.toe.x) * footDir(p) / b.shank, pass:v => v < 0.15,
+             tip:r => `On ${r} your knee went past your toes. Push your hips back a little more.` },
+};
+EX.heel.checks = ['hips', 'trunk', 'heelMat', 'otherLeg'];
+EX.slr.checks = ['kneeStraight', 'toes', 'hips', 'trunk'];
+EX.squat.checks = ['heelDown', 'chest', 'kneeToe'];
 
 const MISSED = new Set([4, 9, 12, 16, 19]);
 const HISTORY = (() => {
@@ -437,9 +489,9 @@ function recentSessions(ex, n){ return HISTORY.filter(h => h.done).slice(-n).map
 /* =================== simulated movement (demo mode) =================== */
 const BASE = { heel:4, slr:0, squat:3 };
 const DEMO = {
-  heel: [ {p:96,d:3.2},{p:102,d:3.2},{p:99,d:3.4},{p:85,d:3.0},{p:104,d:1.4},{p:100,d:3.2,hip:13},{p:68,d:2.6},{lost:1.5},{p:106,d:3.3},{p:101,d:3.2} ],
-  slr:  [ {p:38,d:2.6},{p:42,d:2.6},{p:40,d:2.8,bend:18},{p:43,d:1.1},{p:20,d:2.2},{lost:1.4},{p:39,d:2.7},{p:44,d:2.6},{p:41,d:2.7} ],
-  squat:[ {p:36,d:2.6},{p:41,d:2.6},{p:39,d:2.8,heel:12},{p:43,d:1.1},{lost:1.3},{p:20,d:2.0},{p:38,d:2.7},{p:40,d:2.6},{p:44,d:2.7},{p:39,d:2.6} ],
+  heel: [ {p:96,d:3.2},{p:102,d:3.2},{p:99,d:3.4,oBend:38},{p:85,d:3.0},{p:104,d:1.4},{p:100,d:3.2,hip:13},{p:68,d:2.6},{lost:1.5},{p:106,d:3.3,sh:16},{p:101,d:3.2} ],
+  slr:  [ {p:38,d:2.6},{p:42,d:2.6},{p:40,d:2.8,bend:18},{p:43,d:1.1},{p:20,d:2.2},{lost:1.4},{p:39,d:2.7,toes:38},{p:44,d:2.6},{p:41,d:2.7,hip:11} ],
+  squat:[ {p:36,d:2.6},{p:41,d:2.6},{p:39,d:2.8,heel:12},{p:43,d:1.1},{lost:1.3},{p:20,d:2.0},{p:38,d:2.7,lean:18},{p:40,d:2.6,kneeFwd:15},{p:44,d:2.7},{p:39,d:2.6} ],
 };
 function buildTimeline(items, start = 1.4, rest = 0.9){
   let t = start; const segs = [];
@@ -449,8 +501,9 @@ function buildTimeline(items, start = 1.4, rest = 0.9){
   }
   return { segs, total: t + 0.6 };
 }
+const FAULTS = ['hip', 'bend', 'heel', 'sh', 'oBend', 'toes', 'lean', 'kneeFwd'];
 function demoValues(ex, tl, t){
-  const v = { m:BASE[ex], hip:0, bend:0, heel:0, lost:false };
+  const v = { m:BASE[ex], lost:false }; for (const k of FAULTS) v[k] = 0;
   for (const s of tl.segs){
     if (t < s.t0 || t > s.t1) continue;
     if (s.lost){ v.lost = true; return v; }
@@ -458,41 +511,46 @@ function demoValues(ex, tl, t){
     const e = (1 - Math.cos(2*Math.PI*u)) / 2;
     v.m = BASE[ex] + (s.p - BASE[ex]) * e;
     const bump = Math.sin(Math.PI*u) ** 2;
-    v.hip = (s.hip || 0) * bump; v.bend = (s.bend || 0) * bump; v.heel = (s.heel || 0) * bump;
+    for (const k of FAULTS) v[k] = (s[k] || 0) * bump;
   }
   return v;
 }
 const rad = d => d * Math.PI / 180;
+// lying leg with the foot on the floor: knee rises as the knee bends
+function legOnFloor(hip, th, L1, L2, floorY){
+  const d = Math.sqrt(L1*L1 + L2*L2 + 2*L1*L2*Math.cos(th));
+  const a = Math.acos(clamp((L1*L1 + d*d - L2*L2) / (2*L1*d), -1, 1));
+  return { knee:P(hip.x + L1*Math.cos(a), hip.y - L1*Math.sin(a)), ankle:P(hip.x + d, floorY) };
+}
 function demoPose(ex, v, rnd, shift = 0){
   const n = () => rnd ? (rnd() - 0.5) * 1.2 : 0;
   const j = p => P(p.x + n() + shift, p.y + n());
-  const L1 = 82, L2 = 80;
+  const L1 = 82, L2 = 80, F = k => v[k] || 0;
   let p;
-  if (ex === 'heel'){
-    const th = rad(v.m), hip = P(170, 222 - v.hip);
-    const d = Math.sqrt(L1*L1 + L2*L2 + 2*L1*L2*Math.cos(th));
-    const a = Math.acos(clamp((L1*L1 + d*d - L2*L2) / (2*L1*d), -1, 1));
-    const knee = P(hip.x + L1*Math.cos(a), hip.y - L1*Math.sin(a));
-    const ankle = P(hip.x + d, 222);
-    p = { hip, knee, ankle, heel:P(ankle.x-5, 229), toe:P(ankle.x+10, 205),
-      shoulder:P(92, 219 - v.hip*0.35), head:P(58, 212), elbow:P(122, 228), wrist:P(150, 230),
-      oHip:P(hip.x, hip.y+2), oKnee:P(hip.x+L1, 224), oAnkle:P(hip.x+L1+L2, 224), oToe:P(hip.x+L1+L2+8, 206) };
-  } else if (ex === 'slr'){
-    const ph = rad(v.m), b = rad(v.bend), hip = P(170, 222);
-    const knee = P(hip.x + L1*Math.cos(ph), hip.y - L1*Math.sin(ph));
-    const ankle = P(knee.x + L2*Math.cos(ph - b), knee.y - L2*Math.sin(ph - b));
-    const fd = ph - b + Math.PI/2;
-    p = { hip, knee, ankle, heel:P(ankle.x+3, ankle.y+5), toe:P(ankle.x + 18*Math.cos(fd), ankle.y - 18*Math.sin(fd)),
-      shoulder:P(92, 219), head:P(58, 212), elbow:P(122, 228), wrist:P(150, 230),
-      oHip:P(hip.x, hip.y+2), oKnee:P(hip.x+58, 166), oAnkle:P(hip.x+112, 224), oToe:P(hip.x+130, 226) };
+  if (ex === 'heel' || ex === 'slr'){
+    const hip = P(170, 222 - F('hip')), sh = F('sh');
+    const upper = { shoulder:P(92, 219 - F('hip')*0.35 - sh), head:P(58 + sh*0.3, 212 - sh*1.4), elbow:P(122, 228 - sh*0.5), wrist:P(150, 230 - sh*0.3) };
+    if (ex === 'heel'){
+      const { knee, ankle } = legOnFloor(hip, rad(v.m), L1, L2, 222);
+      const o = legOnFloor(P(hip.x, 224), rad(2 + F('oBend')), L1, L2, 224);
+      p = { ...upper, hip, knee, ankle, heel:P(ankle.x-5, 229), toe:P(ankle.x+10, 205),
+        oHip:P(hip.x, hip.y+2), oKnee:o.knee, oAnkle:o.ankle, oToe:P(o.ankle.x+8, 206) };
+    } else {
+      const ph = rad(v.m), b = rad(F('bend'));
+      const knee = P(hip.x + L1*Math.cos(ph), hip.y - L1*Math.sin(ph));
+      const ankle = P(knee.x + L2*Math.cos(ph - b), knee.y - L2*Math.sin(ph - b));
+      const fd = ph - b + Math.PI/2 - rad(F('toes')), fv = P(Math.cos(fd), -Math.sin(fd));
+      p = { ...upper, hip, knee, ankle, heel:P(ankle.x - fv.x*5, ankle.y - fv.y*5), toe:P(ankle.x + fv.x*18, ankle.y + fv.y*18),
+        oHip:P(hip.x, hip.y+2), oKnee:P(hip.x+58, 166), oAnkle:P(hip.x+112, 224), oToe:P(hip.x+130, 226) };
+    }
   } else {
-    const th = rad(v.m), b = th * 0.45, floor = 276, s1 = 58, s2 = 56;
-    const ankle = P(214, floor - 7 - v.heel*0.65);
+    const th = rad(v.m), b = th * 0.45 + rad(F('kneeFwd')), floor = 276, s1 = 58, s2 = 56;
+    const ankle = P(214, floor - 7 - F('heel')*0.65);
     const knee = P(ankle.x + s2*Math.sin(b), ankle.y - s2*Math.cos(b));
     const hip = P(knee.x - s1*Math.sin(th - b), knee.y - s1*Math.cos(th - b));
-    const tau = rad(6 + v.m*0.4);
+    const tau = rad(6 + v.m*0.4 + F('lean'));
     const shoulder = P(hip.x + 76*Math.sin(tau), hip.y - 76*Math.cos(tau));
-    p = { hip, knee, ankle, heel:P(ankle.x-7, floor - 2 - v.heel), toe:P(ankle.x+19, floor),
+    p = { hip, knee, ankle, heel:P(ankle.x-7, floor - 2 - F('heel')), toe:P(ankle.x+19, floor),
       shoulder, head:P(shoulder.x + 5, shoulder.y - 21), elbow:P(shoulder.x + 16, shoulder.y + 24), wrist:P(shoulder.x + 38, shoulder.y + 21),
       oHip:P(hip.x-5, hip.y), oKnee:P(knee.x-6, knee.y), oAnkle:P(ankle.x-7, ankle.y), oToe:P(ankle.x+13, floor) };
   }
@@ -502,7 +560,8 @@ function demoPose(ex, v, rnd, shift = 0){
 /* =================== movement analysis =================== */
 class Analyzer {
   constructor(ex){ this.E = EX[ex]; this.buf = []; this.state = 'rest'; this.cur = null; this.attempts = []; this.reps = 0;
-    this.m = null; this.prevM = null; this.prevT = null; this.vel = 0; this.cue = null; this.lost = false; this.maxPeak = 0; }
+    this.m = null; this.prevM = null; this.prevT = null; this.vel = 0; this.cue = null; this.lost = false; this.maxPeak = 0;
+    this.base = null; this.cv = []; }
   metric(p){ return this.E.metric === 'lift' ? legLift(p) : kneeFlex(p); }
   smooth(p){                                   // moving average over the last 5 frames
     this.buf.push(p); if (this.buf.length > 5) this.buf.shift();
@@ -516,7 +575,7 @@ class Analyzer {
   update(pose, t){
     const E = this.E;
     if (!pose){                                // pose lost: never show a guessed number
-      this.lost = true; this.buf = []; this.m = null; this.prevM = null; this.vel = 0;
+      this.lost = true; this.buf = []; this.m = null; this.prevM = null; this.vel = 0; this.cv = [];
       if (this.state === 'moving'){ this.state = 'rest'; this.cur = null; }
       this.cue = { text:'Step back into the frame', kind:'lost', prio:100, until: t + 0.6 };
       return;
@@ -525,15 +584,17 @@ class Analyzer {
     const p = this.smooth(pose), m = this.metric(p);
     if (this.prevM != null && t > this.prevT){ const inst = (m - this.prevM) / (t - this.prevT); this.vel = this.vel*0.6 + inst*0.4; }
     this.prevM = m; this.prevT = t; this.m = m; this.p = p;
-    const thigh = len(sub(p.knee, p.hip)), shank = len(sub(p.ankle, p.knee));
-    const heelUp = (p.toe.y - p.heel.y) / shank;
-    const bend = E.metric === 'lift' ? kneeFlex(p) : 0;
+    // resting baseline for body parts that should stay put; frozen while a rep is in progress
+    const nb = { hip:p.hip.y, sh:p.shoulder.y, heel:p.heel.y, thigh:len(sub(p.knee, p.hip)), shank:len(sub(p.ankle, p.knee)) };
+    if (!this.base) this.base = nb;
+    else if (this.state === 'rest') for (const k in nb) this.base[k] = lerp(this.base[k], nb[k], 0.15);
+    this.cv = E.checks.map(id => { const v = CHK[id].val(p, this.base); return { id, v, pass:CHK[id].pass(v) }; });
     if (this.state === 'rest'){
-      if (m > E.start){ this.state = 'moving'; this.cur = { t0:t, peak:m, hip0:p.hip.y, hipRise:0, maxVel:0, heel:0, bend:0 }; }
+      if (m > E.start){ this.state = 'moving'; this.cur = { t0:t, peak:m, maxVel:0, fail:{} }; }
     } else {
       const c = this.cur;
       c.peak = Math.max(c.peak, m); c.maxVel = Math.max(c.maxVel, Math.abs(this.vel));
-      c.hipRise = Math.max(c.hipRise, (c.hip0 - p.hip.y) / thigh); c.heel = Math.max(c.heel, heelUp); c.bend = Math.max(c.bend, bend);
+      for (const r of this.cv) if (!r.pass) c.fail[r.id] = (c.fail[r.id] || 0) + 1;
       if (m < E.ret){ this.finishRep(t); this.state = 'rest'; }  // hysteresis: start > ret
     }
     // live cues, one at a time, highest priority wins
@@ -541,9 +602,7 @@ class Analyzer {
     if (this.state === 'moving'){
       const c = this.cur;
       if (Math.abs(this.vel) > E.maxVel) cand.push(['Slow down', 'warn', 60]);
-      if (E.id === 'squat' && heelUp > 0.09) cand.push(['Keep your heel on the floor', 'warn', 55]);
-      if (E.id === 'slr' && bend > 12) cand.push(['Keep your knee straight', 'warn', 55]);
-      if (E.posture === 'lying' && (c.hip0 - p.hip.y) / thigh > 0.1) cand.push(['Keep your hips on the mat', 'warn', 50]);
+      for (const r of this.cv) if (!r.pass) cand.push([CHK[r.id].cue, 'warn', CHK[r.id].prio]);
       if (m > E.zone[1] + 10) cand.push(['That\'s far enough', 'warn', 45]);
       if (c.peak < E.zone[0] && m < c.peak - 4) cand.push([E.more, 'warn', 40]);
       if (m >= E.zone[0] && m <= E.zone[1] + 6) cand.push([E.good, 'good', 30]);
@@ -558,9 +617,7 @@ class Analyzer {
     if (c.peak < E.zone[0]) issues.push(counted ? 'short' : 'partial');
     if (c.peak > E.zone[1] + 10) issues.push('deep');
     if (dur < E.minDur || c.maxVel > E.maxVel * 1.05) issues.push('fast');
-    if (E.posture === 'lying' && c.hipRise > 0.1) issues.push('hips');
-    if (E.id === 'squat' && c.heel > 0.09) issues.push('heel');
-    if (E.id === 'slr' && c.bend > 12) issues.push('kneeBent');
+    for (const id of E.checks) if ((c.fail[id] || 0) >= 3) issues.push(id);   // joint fault held for 3+ frames
     const score = !counted ? 'red' : issues.length === 0 ? 'green' : issues.length === 1 ? 'amber' : 'red';
     this.attempts.push({ n:this.attempts.length + 1, peak:Math.round(c.peak), dur, issues, score, counted });
     if (counted) this.reps++;
@@ -599,8 +656,15 @@ function drawBody(ctx, p){
   seg(ctx, [p.hip, p.knee], 16, c.body); seg(ctx, [p.knee, p.ankle], 13, c.body); seg(ctx, [p.heel, p.toe], 8, c.body);
 }
 function zoneColor(E, m){ const c = cols(); if (m == null) return c.teal; if (m >= E.zone[0] && m <= E.zone[1] + 6) return c.green; return c.teal; }
-function drawSkeleton(ctx, p, E, m, alpha = 1){
+function tag(ctx, x, y, text, bg, fg){
+  ctx.font = '700 11px Figtree, system-ui, sans-serif';
+  const w = ctx.measureText(text).width + 12; x = clamp(x, 2, 398 - w); y = clamp(y, 2, 281);
+  roundRect(ctx, x, y, w, 17, 8.5); ctx.fillStyle = bg; ctx.fill();
+  ctx.fillStyle = fg; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillText(text, x + 6, y + 9);
+}
+function drawSkeleton(ctx, p, E, m, alpha = 1, cv = null){
   const c = cols(); ctx.globalAlpha = alpha;
+  if (p.oHip && p.oKnee && p.oAnkle){ ctx.globalAlpha = alpha * 0.5; seg(ctx, [p.oHip, p.oKnee, p.oAnkle], 2.5, c.teal); ctx.globalAlpha = alpha; }
   const lines = [[p.shoulder, p.hip], [p.hip, p.knee], [p.knee, p.ankle], [p.ankle, p.heel], [p.heel, p.toe], [p.ankle, p.toe]];
   for (const [a, b] of lines) seg(ctx, [a, b], 3, c.teal);
   // the measured angle as a wedge at the joint
@@ -610,10 +674,21 @@ function drawSkeleton(ctx, p, E, m, alpha = 1){
   const col = zoneColor(E, m);
   ctx.fillStyle = col; ctx.globalAlpha = alpha * 0.28; ctx.beginPath(); ctx.moveTo(j.x, j.y); ctx.arc(j.x, j.y, 26, a0, a0 + d, d < 0); ctx.closePath(); ctx.fill();
   ctx.globalAlpha = alpha; ctx.setLineDash([3, 4]); seg(ctx, [j, add(j, P(Math.cos(a0)*30, Math.sin(a0)*30))], 1.5, col); ctx.setLineDash([]);
-  for (const k of ['shoulder', 'hip', 'knee', 'ankle', 'heel', 'toe']){
-    const q = p[k], big = (k === 'knee' && E.metric === 'knee') || (k === 'hip' && E.metric === 'lift');
+  // per-joint status from the joint checks
+  const bad = {}, good = new Set();
+  for (const r of cv || []){ const k = CHK[r.id].joint; if (r.pass) good.add(k); else (bad[k] = bad[k] || []).push(CHK[r.id]); }
+  const primary = E.metric === 'lift' ? 'hip' : 'knee';
+  for (const k of ['shoulder', 'hip', 'knee', 'ankle', 'heel', 'toe', 'oKnee']){
+    const q = p[k]; if (!q) continue;
+    const big = k === primary, isBad = !!bad[k];
+    if (isBad){ ctx.strokeStyle = c.amber; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(q.x, q.y, 12, 0, Math.PI*2); ctx.stroke(); }
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(q.x, q.y, big ? 7 : 4.5, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = big ? col : c.teal; ctx.beginPath(); ctx.arc(q.x, q.y, big ? 4.5 : 2.6, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = isBad ? c.amber : big ? col : good.has(k) ? c.green : c.teal;
+    ctx.beginPath(); ctx.arc(q.x, q.y, big ? 4.5 : 2.8, 0, Math.PI*2); ctx.fill();
+  }
+  if (cv){
+    if (m != null) tag(ctx, j.x + 14, j.y - 30, Math.round(m) + '°', col, '#fff');
+    for (const k in bad) bad[k].forEach((ch, i) => tag(ctx, p[k].x + 14, p[k].y + 4 + 20 * i, ch.label + ' ' + ch.bad, c.amber, '#fff'));
   }
   ctx.globalAlpha = 1;
 }
@@ -682,7 +757,7 @@ const Cam = {
     const lm = res?.landmarks?.[0]; if (!lm) return { pose:null, raw:null };
     const r = cv.getBoundingClientRect(), vw = video.videoWidth, vh = video.videoHeight;
     const s = Math.max(r.width / vw, r.height / vh), ox = (r.width - vw*s) / 2, oy = (r.height - vh*s) / 2;
-    const map = i => P((ox + lm[i].x*vw*s) * 400 / r.width, (oy + lm[i].y*vh*s) * 300 / r.height);
+    const map = i => P(400 - (ox + lm[i].x*vw*s) * 400 / r.width, (oy + lm[i].y*vh*s) * 300 / r.height);  // mirrored like the preview
     const vis = i => lm[i].visibility ?? 1;
     const right = (vis(24) + vis(26) + vis(28)) >= (vis(23) + vis(25) + vis(27));
     const [sh, osh, hp, ohp, kn, okn, an, oan, he, ft, oft, el, wr] = right ? [12,11,24,23,26,25,28,27,30,32,31,14,16] : [11,12,23,24,25,26,27,28,29,31,32,13,15];
@@ -702,6 +777,31 @@ const Cam = {
   },
 };
 
+/* =================== spoken coaching =================== */
+const SPOKEN = { 'Slow down':'Slow down. Nice and steady.', 'Good depth':'Good depth.', 'Good height':'Good height.',
+  'Bend a bit further':'Bend a little further.', 'Lift a bit higher':'Lift a little higher.', 'Step back into the frame':'I can\'t see you. Step back into the frame.' };
+const Voice = {
+  on:true, voice:null, last:{}, lastAt:0,
+  ok(){ return 'speechSynthesis' in window; },
+  pick(){ if (!this.ok()) return; const vs = speechSynthesis.getVoices();
+    this.voice = vs.find(v => /en[-_]GB/i.test(v.lang) && /female|serena|kate|google uk english female/i.test(v.name)) || vs.find(v => /en[-_](GB|US)/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null; },
+  unlock(){ if (!this.ok()) return; this.pick(); const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); },
+  // gap: min seconds since anything was said; repeat: min seconds before the same line again
+  say(text, { gap = 2.2, repeat = 6, interrupt = false } = {}){
+    if (!this.on || !this.ok() || !text) return;
+    const now = performance.now() / 1000;
+    if (!interrupt && (speechSynthesis.speaking || now - this.lastAt < gap)) return;
+    if (this.last[text] && now - this.last[text] < repeat) return;
+    if (interrupt) speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); if (this.voice) u.voice = this.voice; u.lang = this.voice?.lang || 'en-GB'; u.rate = 1.05;
+    speechSynthesis.speak(u); this.last[text] = now; this.lastAt = now;
+  },
+  stop(){ if (this.ok()) speechSynthesis.cancel(); },
+  toggle(){ this.on = !this.on; if (!this.on) this.stop(); else this.unlock(); const b = $('#voice-btn'); if (b){ b.innerHTML = icon(this.on ? 'sound' : 'mute', 20); b.setAttribute('aria-pressed', this.on); } },
+};
+if (Voice.ok()) speechSynthesis.onvoiceschanged = () => Voice.pick();
+const voiceBtn = () => `<button class="iconbtn" id="voice-btn" onclick="Voice.toggle()" aria-label="Spoken coaching" aria-pressed="${Voice.on}" style="color:#fff">${icon(Voice.on ? 'sound' : 'mute', 20)}</button>`;
+
 /* =================== loop & navigation =================== */
 let raf = null, timers = [];
 function startLoop(fn){ stopLoop(); const tick = now => { fn(now); raf = requestAnimationFrame(tick); }; raf = requestAnimationFrame(tick); }
@@ -711,7 +811,7 @@ const TAB_SCREENS = ['today', 'inbox', 'progress', 'settings'];
 
 function go(screen, params = {}, opts = {}){
   stopLoop(); timers.forEach(clearTimeout); timers = [];
-  if (!CAM_SCREENS.includes(screen)) Cam.stop();
+  if (!CAM_SCREENS.includes(screen)){ Cam.stop(); if (screen !== 'results') Voice.stop(); }
   if (TAB_SCREENS.includes(screen)) S.stack = [];
   else if (!opts.replace && S.screen !== screen) S.stack.push({ screen:S.screen, params:S.params });
   S.screen = screen; S.params = params;
@@ -737,6 +837,7 @@ function renderFlow(){
   f.innerHTML = '<div class="lbl">Demo path · about 3 minutes</div>' + FLOW.map(([s, l], i) => `<button class="${cur === s ? 'on' : ''}" onclick="flowJump('${s}')"><i>${i+1}</i>${l}</button>`).join('');
 }
 function flowJump(s){
+  Voice.unlock();
   if (s === 'exercise' || s === 'setup' || s === 'record') return go(s, { ex: S.params.ex || 'heel' });
   if (s === 'results'){ if (!S.session) S.session = fakeSession('heel'); return go('results'); }
   go(s);
@@ -815,7 +916,7 @@ SCREENS.exercise = {
       <section class="card"><h3 style="font-size:17px;margin-bottom:12px">Step by step</h3><ol class="steps">${E.steps.map(s => `<li><span>${s}</span></li>`).join('')}</ol></section>
       <div class="note">${icon('info', 18)}<span><b>Why this helps:</b> ${E.why}</span></div>
       <div class="note">${icon('cam', 18)}<span><b>Camera:</b> ${E.place}</span></div>
-      <button class="btn primary" onclick="go('setup',{ex:'${ex}'})">${icon('cam')} Start recording</button>
+      <button class="btn primary" onclick="Voice.unlock();go('setup',{ex:'${ex}'})">${icon('cam')} Start recording</button>
       <p class="privacy">${icon('shield', 16)} Video stays on your device until you send it</p>
     </div>`; },
   mount({ ex }){
@@ -833,25 +934,35 @@ const CHECKS = [
   ['stable', 'Phone stable', 'Lean the phone on something steady'],
 ];
 const modeChip = () => `<button class="modechip" onclick="toggleDemo()" aria-pressed="${S.demoMode}" aria-label="Demo mode (no camera)">Demo mode<span class="switch ${S.demoMode ? 'on' : ''}"></span></button>`;
-function toggleDemo(){ S.demoMode = !S.demoMode; if (S.demoMode) Cam.stop(); if (CAM_SCREENS.includes(S.screen)) go(S.screen, S.params, { replace:true }); else render(); }
+function toggleDemo(){ Voice.unlock(); S.demoMode = !S.demoMode; if (S.demoMode) Cam.stop(); if (CAM_SCREENS.includes(S.screen)) go(S.screen, S.params, { replace:true }); else render(); }
 SCREENS.setup = {
   html({ ex }){ const E = EX[ex];
-    return `<div class="cam">${topbar('Camera setup', modeChip())}
-      <div class="stage"><video id="vid" class="mirror" playsinline muted ${S.demoMode ? 'hidden' : ''}></video><canvas id="cv" class="${S.demoMode ? '' : 'mirror'}"></canvas><span class="hint" id="hint">Place your phone so you fit in the outline</span></div>
+    return `<div class="cam">${topbar('Camera setup', voiceBtn() + modeChip())}
+      <div class="stage"><video id="vid" class="mirror" playsinline muted ${S.demoMode ? 'hidden' : ''}></video><canvas id="cv"></canvas><span class="hint" id="hint">Place your phone so you fit in the outline</span></div>
       <div class="cam-body">
         <div><p class="eyebrow">${E.name}</p><p class="small muted">${E.place}</p></div>
         <div class="checks" id="checks">${CHECKS.map(([k, t, s]) => `<div class="check wait" id="ck-${k}"><span class="ic">${icon('check', 16, 3)}</span><div><b>${t}</b><span>${s}</span></div></div>`).join('')}</div>
-        <button class="btn primary" id="go-rec" disabled onclick="go('record',{ex:'${ex}'},{replace:true})">${icon('lock', 20)} Recording unlocks when all checks pass</button>
+        <button class="btn primary" id="go-rec" disabled onclick="go('record',{ex:'${ex}'},{replace:true})">${icon('lock', 20)} Starts by itself when all four are green</button>
         <p class="privacy">${icon('shield', 16)} Movement is analysed on this phone. Video stays here until you send it.</p>
       </div></div>`; },
   mount({ ex }){
     const E = EX[ex], cv = $('#cv'), t0 = performance.now(), held = {}, state = {};
-    const btn = $('#go-rec'), hint = $('#hint'); let unlocked = false;
+    const btn = $('#go-rec'), hint = $('#hint'); let unlocked = false, allSince = 0, started = false, lastHint = '';
+    const AUTO = 1.6;   // seconds all checks must stay green before recording starts by itself
+    Voice.say('Set your phone down so your whole body fits in the outline.', { interrupt:true });
     const setChecks = (ok, hintText) => {
+      const now = performance.now() / 1000;
       for (const [k] of CHECKS){ const el = $('#ck-' + k); if (!el) return; if (state[k] !== ok[k]){ state[k] = ok[k]; el.className = 'check ' + (ok[k] ? 'ok' : 'wait'); } }
       const all = CHECKS.every(([k]) => ok[k]);
-      hint.textContent = all ? 'All set. You can start recording.' : hintText;
-      if (all !== unlocked){ unlocked = all; btn.disabled = !all; btn.innerHTML = all ? `${icon('video', 20)} Start recording` : `${icon('lock', 20)} Recording unlocks when all checks pass`; if (all) btn.classList.add('unlock'); else btn.classList.remove('unlock'); }
+      if (all && !allSince){ allSince = now; Voice.say('Great, you\'re in position. Hold still, starting now.', { interrupt:true }); }
+      if (!all) allSince = 0;
+      const left = all ? Math.max(0, AUTO - (now - allSince)) : 0;
+      hint.textContent = all ? 'All set. Starting…' : hintText;
+      if (!all) Voice.say(hintText.replace('…', '.'), { gap:2.5, repeat:8 });
+      if (all !== unlocked){ unlocked = all; btn.disabled = !all; if (all) btn.classList.add('unlock'); else btn.classList.remove('unlock'); }
+      if (all) btn.innerHTML = `${icon('video', 20)} Starting in ${Math.ceil(left)}… tap to start now`;
+      else btn.innerHTML = `${icon('lock', 20)} Starts by itself when all four are green`;
+      if (all && left <= 0 && !started){ started = true; go('record', { ex }, { replace:true }); }
     };
     const pose0 = demoPose(ex, { m:BASE[ex], hip:0, bend:0, heel:0 });
     if (S.demoMode){
@@ -908,36 +1019,46 @@ SCREENS.setup = {
 /* ---- Recording ---- */
 SCREENS.record = {
   html({ ex }){ const E = EX[ex];
-    return `<div class="cam">${topbar(E.name, modeChip())}
-      <div class="stage"><video id="vid" class="mirror" playsinline muted ${S.demoMode ? 'hidden' : ''}></video><canvas id="cv" class="${S.demoMode ? '' : 'mirror'}"></canvas>
+    return `<div class="cam">${topbar(E.name, voiceBtn() + modeChip())}
+      <div class="stage"><video id="vid" class="mirror" playsinline muted ${S.demoMode ? 'hidden' : ''}></video><canvas id="cv"></canvas>
         <div class="rec-hud"><span class="rec-dot"><i></i><span id="timer">0:00</span></span><span class="repbox"><b id="reps">0</b><b style="opacity:.6;font-size:18px"> / ${E.reps}</b><span>reps</span></span><span class="cue neutral" id="cue">Get ready</span></div>
         <div class="countdown" id="cd">3</div></div>
       <div class="cam-body">
         <div class="gauge-wrap">${gaugeSVG(E)}
           <div class="gauge-legend"><span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);opacity:.45;margin-right:5px"></i>Target <b>${E.zone[0]}–${E.zone[1]}°</b></span><span>Best this set <b id="best">--</b></span></div>
         </div>
+        <div class="jchips" style="grid-template-columns:repeat(${E.checks.length === 4 ? 2 : E.checks.length},minmax(0,1fr))">${E.checks.map(id => `<div class="jchip" id="jc-${id}"><i></i><span style="min-width:0"><b>${CHK[id].label}</b><span class="jv">--</span></span></div>`).join('')}</div>
         <button class="btn ghost" onclick="finishSet()">Finish set</button>
         <p class="privacy">${icon('shield', 16)} Video stays on your device until you send it</p>
       </div></div>`; },
   mount({ ex }){
     const E = EX[ex], cv = $('#cv'), an = new Analyzer(ex), tl = buildTimeline(DEMO[ex]), rnd = mulberry32(11);
     const cd = $('#cd'), cueEl = $('#cue'), repsEl = $('#reps'), timerEl = $('#timer'), bestEl = $('#best');
-    let t0 = performance.now(), live = null, lastCue = '', ended = false;
+    let t0 = performance.now(), live = null, lastCue = '', ended = false, spokenCd = false, lastReps = 0; const chipState = {};
     SCREENS.record.an = an; SCREENS.record.ex = ex; SCREENS.record.tl = tl;
     const frame = (now, pose, drawScene) => {
       const ctx = fitCanvas(cv); const tc = (now - t0) / 1000;
       if (drawScene){ drawRoom(ctx, E.posture); } else ctx.clearRect(0, 0, 400, 300);
-      if (tc < 3){ cd.textContent = 3 - Math.floor(tc); if (pose && drawScene) drawBody(ctx, pose); return; }
-      if (!live){ live = now; cd.hidden = true; }
+      if (tc < 3){ const n = 3 - Math.floor(tc); if (cd.textContent !== String(n) || !spokenCd){ spokenCd = true; cd.textContent = n; Voice.say(n === 3 ? 'Get ready. Three' : String(n), { gap:0, repeat:0, interrupt:true }); } if (pose && drawScene) drawBody(ctx, pose); return; }
+      if (!live){ live = now; cd.hidden = true; Voice.say(E.id === 'squat' ? 'Go. Bend slowly.' : E.id === 'slr' ? 'Go. Lift slowly.' : 'Go. Slide slowly.', { gap:0, repeat:0, interrupt:true }); }
       const t = (now - live) / 1000; timerEl.textContent = mmss(t);
       an.update(pose, t);
       if (pose && drawScene) drawBody(ctx, pose);
-      if (an.p && !an.lost) drawSkeleton(ctx, an.p, E, an.m);
+      if (an.p && !an.lost) drawSkeleton(ctx, an.p, E, an.m, 1, an.cv);
+      for (const id of E.checks){
+        const r = an.cv.find(x => x.id === id), st = an.lost || !r ? 'idle' : r.pass ? 'ok' : 'bad';
+        if (chipState[id] !== st){ chipState[id] = st; const el = $('#jc-' + id); el.className = 'jchip ' + st; el.querySelector('.jv').textContent = st === 'idle' ? '--' : st === 'ok' ? CHK[id].ok : CHK[id].bad; }
+      }
       if (an.lost && drawScene){ ctx.fillStyle = 'rgba(10,20,19,.35)'; ctx.fillRect(0, 0, 400, 300); }
       setGauge(E, an.lost ? null : an.m);
       repsEl.textContent = an.reps; bestEl.textContent = an.maxPeak ? an.maxPeak + '°' : '--';
       const c = an.cue || { text:'Start when you\'re ready', kind:'neutral' };
       const key = c.text + c.kind; if (key !== lastCue){ lastCue = key; cueEl.textContent = c.text; cueEl.className = 'cue ' + c.kind; }
+      // keep offering the active cue to the voice; it speaks once the previous line has finished
+      if (c.kind === 'warn' || c.kind === 'lost') Voice.say(SPOKEN[c.text] || c.text, { gap:0.8, repeat:5 });
+      else if (c.kind === 'good') Voice.say(SPOKEN[c.text] || c.text, { gap:2.5, repeat:14 });
+      if (an.reps > lastReps){ lastReps = an.reps; const left = E.reps - an.reps;
+        Voice.say(left === 0 ? `${an.reps}. That's the set!` : left <= 2 ? `${an.reps}. ${left} to go.` : String(an.reps), { gap:0.4, repeat:0 }); }
       if (!ended && an.reps >= E.reps){ ended = true; timers.push(setTimeout(finishSet, 900)); }
       return t;
     };
@@ -960,24 +1081,32 @@ SCREENS.record = {
 function finishSet(){
   const R = SCREENS.record, an = R.an; if (!an || S.screen !== 'record') return;
   S.session = { ex:R.ex, attempts:an.attempts, reps:an.reps, maxPeak:an.maxPeak, demo:S.demoMode };
+  const greens = an.attempts.filter(a => a.score === 'green').length;
+  Voice.say(`Set complete. ${an.reps} reps, ${greens} with great form. Have a look at your results.`, { interrupt:true, repeat:0 });
   S.pain = 2; S.swelling = false;
   go('results', {}, { replace:true });
 }
 
 /* ---- Results ---- */
-const ISSUE_TXT = { partial:'stopped before the target, not counted', short:'a little short of the target', deep:'went further than planned', fast:'a bit fast', hips:'hips lifted', heel:'heel came up', kneeBent:'knee bent' };
+const ISSUE_TXT = { partial:'stopped before the target, not counted', short:'a little short of the target', deep:'went further than planned', fast:'a bit fast' };
+const issueText = i => ISSUE_TXT[i] || (CHK[i].label + ' ' + CHK[i].bad).toLowerCase();
 function tipsFor(s){
   const E = EX[s.ex], A = s.attempts, last = lastValue(s.ex), out = [];
   const find = k => A.filter(a => a.issues.includes(k)).map(a => a.n);
   const list = ns => ns.length === 1 ? 'Rep ' + ns[0] : 'Reps ' + ns.slice(0, -1).join(', ') + ' and ' + ns[ns.length - 1];
+  const lower = ns => list(ns).toLowerCase();
   if (last != null && s.maxPeak > last) out.push(`Your ${E.gaugeLabel} reached ${s.maxPeak}°, ${s.maxPeak - last}° more than last time. That is real progress.`);
+  for (const id of E.checks.slice().sort((a, b) => CHK[b].prio - CHK[a].prio)){ const ns = find(id); if (ns.length) out.push(CHK[id].tip(lower(ns))); }
   const fast = find('fast'); if (fast.length) out.push(`${list(fast)} went quickly. Count “one, two, three” on the way in and on the way out.`);
-  const hips = find('hips'); if (hips.length) out.push(`On ${list(hips).toLowerCase()} your hips lifted. Keep them flat on the mat and let the knee do the work.`);
-  const heel = find('heel'); if (heel.length) out.push(`On ${list(heel).toLowerCase()} your heel came up. Push through the whole foot.`);
-  const kb = find('kneeBent'); if (kb.length) out.push(`On ${list(kb).toLowerCase()} the knee bent. Tighten the thigh before you lift.`);
   const short = [...find('partial'), ...find('short')].sort((a, b) => a - b); if (short.length) out.push(`${list(short)} stopped before the target. Pause for a second at the deepest point.`);
-  if (!out.length || A.every(a => a.score === 'green')) out.push('Every rep hit the target zone at a calm pace. Nicely done.');
+  if (!out.length || A.every(a => a.score === 'green')) out.push('Every rep hit the target zone at a calm pace with good form. Nicely done.');
   return out.slice(0, 3);
+}
+function jointRows(s){
+  const E = EX[s.ex], A = s.attempts;
+  const rows = [['Reached the target', a => !a.issues.includes('short') && !a.issues.includes('partial')], ['Calm pace', a => !a.issues.includes('fast')],
+    ...E.checks.map(id => [CHK[id].label + ' ' + CHK[id].ok, a => !a.issues.includes(id)])];
+  return rows.map(([label, ok]) => { const n = A.filter(ok).length; return `<div class="jrow ${n < A.length ? 'warn' : ''}"><span>${label}</span><span class="bar"><i style="width:${A.length ? 100 * n / A.length : 0}%"></i></span><b>${n}/${A.length}</b></div>`; }).join('');
 }
 SCREENS.results = {
   html(){
@@ -1010,9 +1139,10 @@ SCREENS.results = {
       </section>
       <section class="card">
         <div class="sec-h"><h3 style="font-size:16px">How each rep went</h3></div>
-        <div class="qbars">${s.attempts.map(a => `<div class="q" title="Rep ${a.n}: ${a.peak}°${a.issues.length ? ', ' + a.issues.map(i => ISSUE_TXT[i]).join(', ') : ''}"><i style="height:${Math.max(14, 70 * a.peak / qmax)}px;background:var(--${a.score});${a.counted ? '' : 'opacity:.45'}"></i>${a.n}</div>`).join('') || '<p class="muted small">No reps recorded.</p>'}</div>
+        <div class="qbars">${s.attempts.map(a => `<div class="q" title="Rep ${a.n}: ${a.peak}°${a.issues.length ? ', ' + a.issues.map(issueText).join(', ') : ''}"><i style="height:${Math.max(14, 70 * a.peak / qmax)}px;background:var(--${a.score});${a.counted ? '' : 'opacity:.45'}"></i>${a.n}</div>`).join('') || '<p class="muted small">No reps recorded.</p>'}</div>
         <div class="legend" style="margin-top:10px"><span><i style="background:var(--green)"></i>On target</span><span><i style="background:var(--amber)"></i>One thing to fix</span><span><i style="background:var(--red)"></i>Needs work</span></div>
       </section>
+      <section class="card"><div class="sec-h"><h3 style="font-size:16px">Joint check</h3><span class="small muted">reps with good form</span></div><div class="jrows">${jointRows(s)}</div></section>
       <section class="card"><h3 style="font-size:16px;margin-bottom:10px">Tips for next time</h3><ul class="tips">${tipsFor(s).map(t => `<li>${icon('spark', 18)}<span>${t}</span></li>`).join('')}</ul></section>
       <section class="card" style="display:flex;flex-direction:column;gap:12px">
         <div class="painval"><h3 style="font-size:16px">How much does your knee hurt now?</h3><b class="num" id="painv">${S.pain}</b></div>
@@ -1037,7 +1167,7 @@ function sentDone(){
   S.today[s.ex] = true; S.todayLog[s.ex] = { value:s.maxPeak, pain:S.pain, swelling:S.swelling };
   sheet(`<div class="okic">${icon('check', 34, 3)}</div><h3>Sent to Physio Anna</h3>
     <p class="muted" style="text-align:center">Anna usually replies within one working day. Keep training as planned in the meantime.</p>
-    <div class="kv"><div><span>Exercise</span><b>${E.name}</b></div><div><span>Reps</span><b>${s.reps} of ${E.reps}</b></div><div><span>Best ${E.gaugeLabel}</span><b>${s.maxPeak}°</b></div><div><span>Pain · swelling</span><b>${S.pain}/10 · ${S.swelling ? 'yes' : 'no'}</b></div></div>
+    <div class="kv"><div><span>Exercise</span><b>${E.name}</b></div><div><span>Reps</span><b>${s.reps} of ${E.reps}</b></div><div><span>Best ${E.gaugeLabel}</span><b>${s.maxPeak}°</b></div><div><span>Joint checks</span><b>${E.checks.length + 2} per rep, ${s.attempts.reduce((n, a) => n + a.issues.length, 0)} flags</b></div><div><span>Pain · swelling</span><b>${S.pain}/10 · ${S.swelling ? 'yes' : 'no'}</b></div></div>
     <button class="btn primary" onclick="sheet('');go('today')">Back to today</button>`);
   const pain = S.pain, swelling = S.swelling;
   setTimeout(() => simulateReply(s, pain, swelling), 9000);
@@ -1195,6 +1325,7 @@ SCREENS.settings = { html(){
       <button class="setrow" onclick="S.demoMode=!S.demoMode;render()" aria-pressed="${S.demoMode}"><span class="t"><b>Demo mode (no camera)</b><span>Plays a simulated recording so the full flow works without a webcam.</span></span><span class="switch ${S.demoMode ? 'on' : ''}"></span></button>
       <div class="setrow" style="display:block"><b>Anna's next reply (presenter control)</b><span class="small muted" style="display:block">Auto replies with a video call request if pain is 6 or more, or swelling is reported.</span>
         <div class="opt3">${[['auto','Auto'],['keep','Keep going'],['call','Video call']].map(([k, l]) => `<button class="${S.nextReply === k ? 'on' : ''}" onclick="S.nextReply='${k}';render()">${l}</button>`).join('')}</div></div>
+      <button class="setrow" onclick="Voice.toggle();render()" aria-pressed="${Voice.on}"><span class="t"><b>Spoken coaching</b><span>Counts reps and says what to fix while you move.</span></span><span class="switch ${Voice.on ? 'on' : ''}"></span></button>
       <div class="setrow"><span class="t"><b>Reminder</b><span>Every day at 21:30</span></span><span class="muted small">On</span></div>
     </section>
     <section class="card">
@@ -1204,7 +1335,7 @@ SCREENS.settings = { html(){
           <li>Knee bend is the angle between your thigh (hip to knee) and your shin (knee to ankle).</li>
           <li>Positions are averaged over the last 5 frames to smooth out jitter.</li>
           <li>A rep counts when you bend past the start line, reach close to your target, and come back. A small gap between the start and return lines stops double counting.</li>
-          <li>Each rep is checked for three things: did it reach the target zone, was the pace calm, did your hip stay still.</li>
+          <li>Each exercise also watches other joints: hips and shoulders staying on the mat, the other leg staying straight, toes pulled up, heel on the floor, chest upright, knee behind the toes.</li><li>Every rep is scored on all of these. Green means no faults, amber one, red two or more.</li>
           <li>If the app loses sight of you, it says so instead of showing a wrong number.</li>
         </ul></details>
     </section>
