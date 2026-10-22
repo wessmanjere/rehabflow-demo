@@ -313,7 +313,7 @@ details.explain ul{margin:10px 0 0;padding-left:18px;display:flex;flex-direction
       <div><span class="dot"></span><p><b>A physio when needed</b><span class="muted small">Anna reviews clips later and books a call only if needed.</span></p></div>
     </div>
     <div class="flow" id="flow"><div class="lbl">Demo path · about 3 minutes</div></div>
-    <p class="disc">Prototype. Not a medical device. Feedback does not replace your physiotherapist. All data is invented.</p>
+    <p class="disc" id="ver"></p><p class="disc">Prototype. Not a medical device. Feedback does not replace your physiotherapist. All data is invented.</p>
   </aside>
   <div class="device">
     <div class="app" id="app">
@@ -405,6 +405,7 @@ const EX = {
     place:'Phone on a shelf at hip height, about 2.5 m away, sideways.' },
 };
 const ORDER = ['heel', 'slr', 'squat'];
+const VERSION = 'v5 · 22 Oct';
 
 /* Joint checks: each watches one body part next to the main angle. b = baseline captured while resting. */
 const footDir = p => Math.sign(p.toe.x - p.heel.x) || 1;
@@ -429,10 +430,10 @@ const CHK = {
              val:p => angleBetween(sub(p.knee, p.ankle), sub(p.toe, p.heel)), pass:v => v < 115 + 15*LOOSE(),
              tip:r => `On ${r} your toes pointed away. Pull them towards you to keep the leg firm.` },
   heelDown:{ joint:'heel', label:'Heel', ok:'on the floor', bad:'lifting', cue:'Keep your heel on the floor', prio:55,
-             val:(p, b) => (p.toe.y - p.heel.y) / b.shank, pass:v => v < 0.09 + 0.06*LOOSE(),
+             val:(p, b) => (p.toe.y - p.heel.y) / b.shank, pass:v => v < 0.09 + 0.12*LOOSE(),
              tip:r => `On ${r} your heel came up. Push through your whole foot.` },
   chest:   { joint:'shoulder', label:'Chest', ok:'upright', bad:'leaning', cue:'Keep your chest up', prio:47,
-             val:p => angleBetween(sub(p.shoulder, p.hip), P(0, -1)), pass:v => v < 35 + 12*LOOSE(),
+             val:p => angleBetween(sub(p.shoulder, p.hip), P(0, -1)), pass:v => v < 35 + 15*LOOSE(),
              tip:r => `On ${r} you leaned forward. Keep your chest up, as if sitting back onto a chair.` },
   kneeToe: { joint:'knee', label:'Knee', ok:'behind toes', bad:'past toes', cue:'Sit back, knee behind your toes', prio:46,
              val:(p, b) => (p.knee.x - p.toe.x) * footDir(p) / b.shank, pass:v => v < 0.15 + 0.1*LOOSE(),
@@ -440,7 +441,7 @@ const CHK = {
 };
 EX.heel.checks = ['hips', 'trunk', 'heelMat', 'otherLeg'];
 EX.slr.checks = ['kneeStraight', 'toes', 'hips', 'trunk'];
-EX.squat.checks = ['heelDown', 'chest', 'kneeToe'];
+EX.squat.checks = ['heelDown', 'chest'];   // knee-over-toe left out: foot landmarks are too jumpy for a smooth demo
 
 const MISSED = new Set([4, 9, 12, 16, 19]);
 const HISTORY = (() => {
@@ -492,7 +493,7 @@ const BASE = { heel:4, slr:0, squat:3 };
 const DEMO = {
   heel: [ {p:96,d:3.2},{p:102,d:3.2},{p:99,d:3.4,oBend:38},{p:85,d:3.0},{p:104,d:1.4},{p:100,d:3.2,hip:13},{p:68,d:2.6},{lost:1.5},{p:106,d:3.3,sh:16},{p:101,d:3.2} ],
   slr:  [ {p:38,d:2.6},{p:42,d:2.6},{p:40,d:2.8,bend:18},{p:43,d:1.1},{p:20,d:2.2},{lost:1.4},{p:39,d:2.7,toes:38},{p:44,d:2.6},{p:41,d:2.7,hip:11} ],
-  squat:[ {p:36,d:2.6},{p:41,d:2.6},{p:39,d:2.8,heel:12},{p:43,d:1.1},{lost:1.3},{p:20,d:2.0},{p:38,d:2.7,lean:18},{p:40,d:2.6,kneeFwd:15},{p:44,d:2.7},{p:39,d:2.6} ],
+  squat:[ {p:36,d:2.6},{p:41,d:2.6},{p:39,d:2.8,heel:12},{p:43,d:1.1},{lost:1.3},{p:20,d:2.0},{p:38,d:2.7,lean:18},{p:40,d:2.6},{p:44,d:2.7},{p:39,d:2.6} ],
 };
 function buildTimeline(items, start = 1.4, rest = 0.9){
   let t = start; const segs = [];
@@ -1047,6 +1048,7 @@ SCREENS.record = {
         <div class="jchips" style="grid-template-columns:repeat(${E.checks.length === 4 ? 2 : E.checks.length},minmax(0,1fr))">${E.checks.map(id => `<div class="jchip" id="jc-${id}"><i></i><span style="min-width:0"><b>${CHK[id].label}</b><span class="jv">--</span></span></div>`).join('')}</div>
         <button class="btn ghost" onclick="finishSet()">Finish set</button>
         <p class="privacy">${icon('shield', 16)} Video stays on your device until you send it</p>
+        <p class="small muted" style="text-align:center;opacity:.6">${VERSION}</p>
       </div></div>`; },
   mount({ ex }){
     const E = EX[ex], cv = $('#cv'), an = new Analyzer(ex), tl = buildTimeline(DEMO[ex]), rnd = mulberry32(11);
@@ -1353,15 +1355,17 @@ SCREENS.settings = { html(){
           <li>Knee bend is the angle between your thigh (hip to knee) and your shin (knee to ankle).</li>
           <li>Positions are averaged over the last 5 frames to smooth out jitter.</li>
           <li>A rep counts when you bend past the start line, reach close to your target, and come back. A small gap between the start and return lines stops double counting.</li>
-          <li>Each exercise also watches other joints: hips and shoulders staying on the mat, the other leg staying straight, toes pulled up, heel on the floor, chest upright, knee behind the toes.</li><li>Every rep is scored on all of these. Green means no faults, amber one, red two or more.</li>
+          <li>Each exercise also watches other joints: hips and shoulders staying on the mat, the other leg staying straight, toes pulled up, heel on the floor, chest upright.</li><li>Every rep is scored on all of these. Green means no faults, amber one, red two or more.</li>
           <li>If the app loses sight of you, it says so instead of showing a wrong number.</li>
         </ul></details>
     </section>
     <div class="note">${icon('shield', 18)}<span><b>Your privacy:</b> video is analysed on this phone and stays here until you choose to send it to Anna.</span></div>
     <div class="note amber">${icon('info', 18)}<span>Prototype. Not a medical device. Feedback does not replace your physiotherapist.</span></div>
     <button class="btn ghost" onclick="location.reload()">Reset demo</button>
+    <p class="small muted" style="text-align:center">RehabFlow prototype ${VERSION}</p>
   </div>`; } };
 
+$('#ver').textContent = 'Version ' + VERSION;
 render();
 window.addEventListener('resize', () => { COL = null; });
 </script>
