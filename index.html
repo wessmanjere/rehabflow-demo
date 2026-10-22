@@ -408,33 +408,34 @@ const ORDER = ['heel', 'slr', 'squat'];
 
 /* Joint checks: each watches one body part next to the main angle. b = baseline captured while resting. */
 const footDir = p => Math.sign(p.toe.x - p.heel.x) || 1;
+const LOOSE = () => S.demoMode ? 0 : 1;   // real camera: wider tolerances, smoothness over precision
 const CHK = {
   hips:    { joint:'hip', label:'Hips', ok:'on the mat', bad:'lifting', cue:'Keep your hips on the mat', prio:50,
-             val:(p, b) => (b.hip - p.hip.y) / b.thigh, pass:v => v < 0.1,
+             val:(p, b) => (b.hip - p.hip.y) / b.thigh, pass:v => v < 0.1 + 0.06*LOOSE(),
              tip:r => `On ${r} your hips lifted. Keep them flat on the mat and let the knee do the work.` },
   trunk:   { joint:'shoulder', label:'Upper body', ok:'flat', bad:'lifting', cue:'Keep your shoulders down', prio:48,
-             val:(p, b) => (b.sh - p.shoulder.y) / b.thigh, pass:v => v < 0.15,
+             val:(p, b) => (b.sh - p.shoulder.y) / b.thigh, pass:v => v < 0.15 + 0.1*LOOSE(),
              tip:r => `On ${r} your shoulders came up. Rest your head and shoulders on the mat.` },
   heelMat: { joint:'heel', label:'Heel', ok:'on the mat', bad:'lifting', cue:'Slide your heel along the mat', prio:47,
-             val:(p, b) => (b.heel - p.heel.y) / b.shank, pass:v => v < 0.12,
+             val:(p, b) => (b.heel - p.heel.y) / b.shank, pass:v => v < 0.12 + 0.08*LOOSE(),
              tip:r => `On ${r} your heel left the mat. Let it glide along the floor, like on a rail.` },
   otherLeg:{ joint:'oKnee', label:'Left leg', ok:'straight', bad:'bending', cue:'Keep your left leg straight', prio:46,
-             val:p => kneeFlex({ hip:p.oHip, knee:p.oKnee, ankle:p.oAnkle }), pass:v => v < 20,
+             val:p => kneeFlex({ hip:p.oHip, knee:p.oKnee, ankle:p.oAnkle }), pass:v => v < 20 + 12*LOOSE(),
              tip:r => `On ${r} your left leg bent. Keep it long and relaxed on the mat.` },
   kneeStraight:{ joint:'knee', label:'Knee', ok:'straight', bad:'bending', cue:'Keep your knee straight', prio:55,
-             val:p => kneeFlex(p), pass:v => v < 12,
+             val:p => kneeFlex(p), pass:v => v < 12 + 8*LOOSE(),
              tip:r => `On ${r} your knee bent. Tighten your thigh before you lift.` },
   toes:    { joint:'toe', label:'Toes', ok:'pulled up', bad:'pointing', cue:'Pull your toes towards you', prio:44,
-             val:p => angleBetween(sub(p.knee, p.ankle), sub(p.toe, p.heel)), pass:v => v < 115,
+             val:p => angleBetween(sub(p.knee, p.ankle), sub(p.toe, p.heel)), pass:v => v < 115 + 15*LOOSE(),
              tip:r => `On ${r} your toes pointed away. Pull them towards you to keep the leg firm.` },
   heelDown:{ joint:'heel', label:'Heel', ok:'on the floor', bad:'lifting', cue:'Keep your heel on the floor', prio:55,
-             val:(p, b) => (p.toe.y - p.heel.y) / b.shank, pass:v => v < 0.09,
+             val:(p, b) => (p.toe.y - p.heel.y) / b.shank, pass:v => v < 0.09 + 0.06*LOOSE(),
              tip:r => `On ${r} your heel came up. Push through your whole foot.` },
   chest:   { joint:'shoulder', label:'Chest', ok:'upright', bad:'leaning', cue:'Keep your chest up', prio:47,
-             val:p => angleBetween(sub(p.shoulder, p.hip), P(0, -1)), pass:v => v < 35,
+             val:p => angleBetween(sub(p.shoulder, p.hip), P(0, -1)), pass:v => v < 35 + 12*LOOSE(),
              tip:r => `On ${r} you leaned forward. Keep your chest up, as if sitting back onto a chair.` },
   kneeToe: { joint:'knee', label:'Knee', ok:'behind toes', bad:'past toes', cue:'Sit back, knee behind your toes', prio:46,
-             val:(p, b) => (p.knee.x - p.toe.x) * footDir(p) / b.shank, pass:v => v < 0.15,
+             val:(p, b) => (p.knee.x - p.toe.x) * footDir(p) / b.shank, pass:v => v < 0.15 + 0.1*LOOSE(),
              tip:r => `On ${r} your knee went past your toes. Push your hips back a little more.` },
 };
 EX.heel.checks = ['hips', 'trunk', 'heelMat', 'otherLeg'];
@@ -561,7 +562,7 @@ function demoPose(ex, v, rnd, shift = 0){
 class Analyzer {
   constructor(ex){ this.E = EX[ex]; this.buf = []; this.state = 'rest'; this.cur = null; this.attempts = []; this.reps = 0;
     this.m = null; this.prevM = null; this.prevT = null; this.vel = 0; this.cue = null; this.lost = false; this.maxPeak = 0;
-    this.base = null; this.cv = []; }
+    this.base = null; this.cv = []; this.run = {}; this.need = S.demoMode ? 2 : 6; }
   metric(p){ return this.E.metric === 'lift' ? legLift(p) : kneeFlex(p); }
   smooth(p){                                   // moving average over the last 5 frames
     this.buf.push(p); if (this.buf.length > 5) this.buf.shift();
@@ -577,6 +578,7 @@ class Analyzer {
     if (!pose){                                // pose lost: never show a guessed number
       this.lost = true; this.buf = []; this.m = null; this.prevM = null; this.vel = 0; this.cv = [];
       if (this.state === 'moving'){ this.state = 'rest'; this.cur = null; }
+      this.run = {};
       this.cue = { text:'Step back into the frame', kind:'lost', prio:100, until: t + 0.6 };
       return;
     }
@@ -588,7 +590,10 @@ class Analyzer {
     const nb = { hip:p.hip.y, sh:p.shoulder.y, heel:p.heel.y, thigh:len(sub(p.knee, p.hip)), shank:len(sub(p.ankle, p.knee)) };
     if (!this.base) this.base = nb;
     else if (this.state === 'rest') for (const k in nb) this.base[k] = lerp(this.base[k], nb[k], 0.15);
-    this.cv = E.checks.map(id => { const v = CHK[id].val(p, this.base); return { id, v, pass:CHK[id].pass(v) }; });
+    this.cv = E.checks.map(id => {                 // a fault only counts once it has lasted a few frames
+      const v = CHK[id].val(p, this.base), raw = CHK[id].pass(v);
+      this.run[id] = raw ? 0 : (this.run[id] || 0) + 1;
+      return { id, v, pass:this.run[id] < this.need }; });
     if (this.state === 'rest'){
       if (m > E.start){ this.state = 'moving'; this.cur = { t0:t, peak:m, maxVel:0, fail:{} }; }
     } else {
@@ -617,7 +622,7 @@ class Analyzer {
     if (c.peak < E.zone[0]) issues.push(counted ? 'short' : 'partial');
     if (c.peak > E.zone[1] + 10) issues.push('deep');
     if (dur < E.minDur || c.maxVel > E.maxVel * 1.05) issues.push('fast');
-    for (const id of E.checks) if ((c.fail[id] || 0) >= 3) issues.push(id);   // joint fault held for 3+ frames
+    for (const id of E.checks) if ((c.fail[id] || 0) >= 2) issues.push(id);   // debounced joint fault
     const score = !counted ? 'red' : issues.length === 0 ? 'green' : issues.length === 1 ? 'amber' : 'red';
     this.attempts.push({ n:this.attempts.length + 1, peak:Math.round(c.peak), dur, issues, score, counted });
     if (counted) this.reps++;
@@ -725,10 +730,10 @@ function setGauge(E, m){
 
 /* =================== camera + pose (real mode) =================== */
 const Cam = {
-  stream:null, landmarker:null, loading:null, lastVT:-1, lastRes:null, probe:null, prevLum:null, motion:[],
+  stream:null, landmarker:null, loading:null, lastVT:-1, lastRes:null, lastAt:0, probe:null, prevLum:null, motion:[], held:null, heldAt:0,
   async start(video){
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('no-camera');
-    if (!this.stream) this.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
+    if (!this.stream) this.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:30, max:30} }, audio:false });
     video.srcObject = this.stream; video.muted = true; video.playsInline = true; await video.play();
   },
   stop(){ if (this.stream){ this.stream.getTracks().forEach(t => t.stop()); this.stream = null; } },
@@ -739,7 +744,7 @@ const Cam = {
       const mp = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${V}/vision_bundle.mjs`);
       const fs = await mp.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${V}/wasm`);
       const opts = delegate => ({ baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate },
-        runningMode:'VIDEO', numPoses:1 });
+        runningMode:'VIDEO', numPoses:1, minPoseDetectionConfidence:0.3, minPosePresenceConfidence:0.3, minTrackingConfidence:0.3, outputSegmentationMasks:false });
       try { this.landmarker = await mp.PoseLandmarker.createFromOptions(fs, opts('GPU')); }
       catch (e) { console.warn('GPU pose failed, using CPU', e); this.landmarker = await mp.PoseLandmarker.createFromOptions(fs, opts('CPU')); }
       return this.landmarker;
@@ -749,7 +754,10 @@ const Cam = {
   },
   detect(video){
     if (!this.landmarker || video.readyState < 2) return this.lastRes;
-    if (video.currentTime !== this.lastVT){ this.lastVT = video.currentTime; this.lastRes = this.landmarker.detectForVideo(video, performance.now()); }
+    const now = performance.now();
+    if (now - this.lastAt < 50) return this.lastRes;          // ~20 detections per second is plenty and keeps the laptop cool
+    if (video.currentTime !== this.lastVT){ this.lastVT = video.currentTime; this.lastAt = now;
+      try { this.lastRes = this.landmarker.detectForVideo(video, now); } catch (e) { console.warn(e); } }
     return this.lastRes;
   },
   // map normalized landmarks (object-fit: cover) into the virtual 400x300 stage
@@ -761,10 +769,16 @@ const Cam = {
     const vis = i => lm[i].visibility ?? 1;
     const right = (vis(24) + vis(26) + vis(28)) >= (vis(23) + vis(25) + vis(27));
     const [sh, osh, hp, ohp, kn, okn, an, oan, he, ft, oft, el, wr] = right ? [12,11,24,23,26,25,28,27,30,32,31,14,16] : [11,12,23,24,25,26,27,28,29,31,32,13,15];
-    const ok = vis(hp) > 0.5 && vis(kn) > 0.5 && vis(an) > 0.5 && vis(sh) > 0.4;
+    const ok = vis(hp) > 0.15 && vis(kn) > 0.15 && vis(an) > 0.1;   // lenient: keep tracking even when unsure
     const pose = { shoulder:map(sh), oShoulder:map(osh), hip:map(hp), oHip:map(ohp), knee:map(kn), oKnee:map(okn), ankle:map(an), oAnkle:map(oan),
       heel:map(he), toe:map(ft), oToe:map(oft), elbow:map(el), wrist:map(wr), head:map(0) };
-    return { pose: ok ? pose : null, raw:lm, all:pose };
+    return { pose: ok ? pose : null, raw:lm, all:pose, side:[sh, hp, kn, an] };
+  },
+  // bridge short dropouts: reuse the last pose for up to 1.2 s before saying the person is gone
+  hold(pose){
+    const now = performance.now();
+    if (pose){ this.held = pose; this.heldAt = now; return pose; }
+    return this.held && now - this.heldAt < 1200 ? this.held : null;
   },
   frameStats(video){
     if (!this.probe){ this.probe = document.createElement('canvas'); this.probe.width = 32; this.probe.height = 24; }
@@ -843,8 +857,10 @@ function flowJump(s){
   go(s);
 }
 function fakeSession(ex){
+  const was = S.demoMode; S.demoMode = true;          // simulated data always uses demo tolerances
   const a = new Analyzer(ex), tl = buildTimeline(DEMO[ex]), r = mulberry32(3);
   for (let t = 0; t <= tl.total; t += 1/30){ const v = demoValues(ex, tl, t); a.update(v.lost ? null : demoPose(ex, v, r), t); }
+  S.demoMode = was;
   return { ex, attempts:a.attempts, reps:a.reps, maxPeak:a.maxPeak, duration:tl.total, demo:true };
 }
 
@@ -946,7 +962,7 @@ SCREENS.setup = {
         <p class="privacy">${icon('shield', 16)} Movement is analysed on this phone. Video stays here until you send it.</p>
       </div></div>`; },
   mount({ ex }){
-    const E = EX[ex], cv = $('#cv'), t0 = performance.now(), held = {}, state = {};
+    const E = EX[ex], cv = $('#cv'), t0 = performance.now(), held = {}, state = {}, latched = {};
     const btn = $('#go-rec'), hint = $('#hint'); let unlocked = false, allSince = 0, started = false, lastHint = '';
     const AUTO = 1.6;   // seconds all checks must stay green before recording starts by itself
     Voice.say('Set your phone down so your whole body fits in the outline.', { interrupt:true });
@@ -988,24 +1004,25 @@ SCREENS.setup = {
       startLoop(now => {
         const t = (now - t0) / 1000, ctx = fitCanvas(cv); ctx.clearRect(0, 0, 400, 300);
         const fs = Cam.frameStats(video), res = Cam.detect(video), { pose, raw, all } = Cam.toPose(res, video, cv);
-        const vis = i => raw ? (raw[i].visibility ?? 1) : 0, inFrame = i => raw && raw[i].x > 0.02 && raw[i].x < 0.98 && raw[i].y > 0.02 && raw[i].y < 0.98;
-        const key = [0, 11, 12, 23, 24, 25, 26, 27, 28];
+        const res2 = Cam.toPose(res, video, cv), side = res2.side || [];
+        const vis = i => raw ? (raw[i].visibility ?? 1) : 0, inFrame = i => raw && raw[i].x > -0.03 && raw[i].x < 1.03 && raw[i].y > -0.03 && raw[i].y < 1.03;
         const now_ = {
-          body: !!raw && key.every(i => vis(i) > 0.5 && inFrame(i)),
-          light: fs.light > 60,
-          stable: fs.shake < 7,
+          body: !!raw && side.every(i => vis(i) > 0.25 && inFrame(i)),   // one side: shoulder, hip, knee, ankle
+          light: fs.light > 40,
+          stable: fs.shake < 14,
           side: false,
         };
         let sideHint = 'Turn so your side faces the camera';
         if (all && pose){
           const torso = len(sub(P((all.shoulder.x + all.oShoulder.x)/2, (all.shoulder.y + all.oShoulder.y)/2), P((all.hip.x + all.oHip.x)/2, (all.hip.y + all.oHip.y)/2)));
-          const sideways = len(sub(all.shoulder, all.oShoulder)) / (torso || 1) < 0.45;
-          const xs = raw.map(l => l.x), ys = raw.map(l => l.y), extent = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-          const dist = extent > 0.45 && extent < 0.95;
+          const sideways = len(sub(all.shoulder, all.oShoulder)) / (torso || 1) < 0.7;
+          const seen = raw.filter(l => (l.visibility ?? 1) > 0.3), xs = seen.map(l => l.x), ys = seen.map(l => l.y);
+          const extent = seen.length ? Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) : 0;
+          const dist = extent > 0.3 && extent < 1.05;
           now_.side = sideways && dist; if (sideways) sideHint = extent >= 0.95 ? 'Move the phone a bit further away' : 'Bring the phone a bit closer';
         }
-        const ok = {}; for (const k in now_){ held[k] = now_[k] ? (held[k] || t) : 0; ok[k] = now_[k] && t - held[k] > 0.5; }
-        drawGuide(ctx, E.posture, ok.body); if (pose) drawSkeleton(ctx, pose, E, null, 0.9);
+        const ok = {}; for (const k in now_){ held[k] = now_[k] ? (held[k] || t) : 0; if (now_[k] && t - held[k] > 0.4) latched[k] = true; ok[k] = !!latched[k]; }
+        drawGuide(ctx, E.posture, ok.body); const hp = Cam.hold(pose); if (hp) drawSkeleton(ctx, hp, E, null, 0.9);
         setChecks(ok, !ok.light ? 'Too dark. Turn on a light.' : !ok.body ? 'Step back so your whole body fits' : !ok.side ? sideHint : 'Hold the phone still for a moment');
       });
     }).catch(err => {
@@ -1055,7 +1072,8 @@ SCREENS.record = {
       const c = an.cue || { text:'Start when you\'re ready', kind:'neutral' };
       const key = c.text + c.kind; if (key !== lastCue){ lastCue = key; cueEl.textContent = c.text; cueEl.className = 'cue ' + c.kind; }
       // keep offering the active cue to the voice; it speaks once the previous line has finished
-      if (c.kind === 'warn' || c.kind === 'lost') Voice.say(SPOKEN[c.text] || c.text, { gap:0.8, repeat:5 });
+      if (c.kind === 'warn') Voice.say(SPOKEN[c.text] || c.text, { gap:0.8, repeat:5 });
+      else if (c.kind === 'lost') Voice.say(SPOKEN[c.text], { gap:1.5, repeat:12 });
       else if (c.kind === 'good') Voice.say(SPOKEN[c.text] || c.text, { gap:2.5, repeat:14 });
       if (an.reps > lastReps){ lastReps = an.reps; const left = E.reps - an.reps;
         Voice.say(left === 0 ? `${an.reps}. That's the set!` : left <= 2 ? `${an.reps}. ${left} to go.` : String(an.reps), { gap:0.4, repeat:0 }); }
@@ -1075,7 +1093,7 @@ SCREENS.record = {
     const video = $('#vid');
     Cam.start(video).then(() => Cam.loadPose()).then(() => {
       t0 = performance.now();
-      startLoop(now => { const res = Cam.detect(video), { pose } = Cam.toPose(res, video, cv); frame(now, pose, false); });
+      startLoop(now => { const res = Cam.detect(video), { pose } = Cam.toPose(res, video, cv); frame(now, Cam.hold(pose), false); });
     }).catch(err => { console.warn(err); S.demoMode = true; go('record', { ex }, { replace:true }); toast(`<span class="t"><b>Camera not available here</b>Switched to demo mode.</span>`, 4000); });
   } };
 function finishSet(){
